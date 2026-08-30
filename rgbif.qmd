@@ -1,0 +1,192 @@
+---
+title: "rgbif"
+---
+
+
+# INSTALAR PAQUETES SI SE REQUIERE
+```{r}
+# instalar varios paquetes si son necesarios
+if (!require("rgbif")) install.packages("rgbif")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("leaflet")) install.packages("leaflet")
+if (!require("sf")) install.packages("sf")
+if (!require("ggspatial")) install.packages("ggspatial")
+if (!require("maps")) install.packages("maps")
+if (!require("countrycode")) install.packages("countrycode")
+if (!require("CoordinateCleaner")) install.packages("CoordinateCleaner")
+if (!require("rnaturalearth")) install.packages("rnaturalearth")
+if (!require("bit64")) install.packages("bit64")
+
+
+```
+
+
+# OBTENER DATOS
+```{r}
+# descarga de datos con DOI
+data <- occ_download(pred("taxonKey",3173080)) # Justicia secunda Vahl
+
+#esperar obtencion de datos de GBIF
+occ_download_wait
+
+#verificacion de obtencion de datos
+occ_download_meta(data)
+
+
+```
+
+
+# GUARDAR DATOS
+```{r}
+
+# recuperar archivo de datos
+res <- occ_download_get(data, path = "registros")
+
+#importar el archivo de registros
+df <- occ_download_import(res, path = "registros")
+
+#citar la descarga
+gbif_citation(res)
+```
+
+
+# OTRA FORMA DE OBTENER DATOS DE GBIF
+```{r}
+# NO RECOMENDADO
+
+#| eval: false
+#| include: false
+# descargar datos de GBIF
+data <- occ_search(
+  scientificName = "Justicia secunda Vahl",
+  taxonKey = 3173080,
+  hasCoordinate = TRUE,
+  limit = 1000
+)
+```
+
+
+# CONTINUACIÓN
+```{r}
+# filtrar datos
+filtdf <- df %>%
+dplyr::select(
+species,
+scientificName,
+coordinateUncertaintyInMeters,
+countryCode,
+decimalLatitude,
+decimalLongitude,
+individualCount,
+year,
+institutionCode,
+basisOfRecord,
+datasetName,
+taxonRank
+)
+
+```
+
+
+
+```{r}
+# filtro coordenadas
+filtdf <- filtdf %>%
+filter(!is.na(decimalLatitude)) %>%
+filter(!is.na(decimalLongitude))
+```
+
+
+
+```{r}
+#visualizacion inicial
+wm <- borders("world", colour = "gray70", fill = "gray80")
+ggplot() +
+wm +
+geom_point(data = filtdf,
+aes(x = decimalLongitude, y = decimalLatitude),
+color = "red", size = 0.9) +
+theme_bw() +
+labs(title = paste("Distribución de", unique(filtdf$scientificName)))
+
+```
+
+
+```{r}
+# limpieza de coordenadas
+filtdf$countryCode <- countrycode(filtdf$countryCode,
+origin = "iso2c",
+destination = "iso3c")
+flags <- clean_coordinates(x = filtdf,
+lon = "decimalLongitude",
+lat = "decimalLatitude",
+countries = "countryCode",
+species = "species",
+tests = c("capitals", "centroids", "equal", "gbif", "institutions", "zeros"))
+```
+
+```{r}
+# excluir registros problematicos
+cleaned_data <- filtdf[flags$.summary, ]
+```
+
+```{r}
+# mapa ajustado a los limites de los datos
+world <- ne_countries(scale = "medium", returnclass = "sf")
+coords <- cleaned_data %>%
+dplyr::select(species, decimalLongitude, decimalLatitude) %>%
+rename(lon = decimalLongitude, lat = decimalLatitude)
+coord_sf <- coords %>%
+st_as_sf(coords = (2:3))
+bbox_new <- st_bbox(coord_sf)
+```
+
+
+```{r}
+#grafico
+ggplot() +
+geom_sf(data = world, fill = "gray80", color = "gray70") +
+geom_point(data = cleaned_data, aes(x = decimalLongitude, y = decimalLatitude), color = "cyan4", size = 1, alpha = 0.6) +
+#coord_sf(xlim = c(bbox_new[1], bbox_new[3]),
+#        ylim = c(bbox_new[2], bbox_new[4])) +
+annotation_scale(location = "br", width_hint = 0.1, line_width = 0.5) +
+annotation_north_arrow(location = "tr", which_north = "true",
+pad_x = unit(1.5, "cm"),
+pad_y = unit(0.5, "cm"),
+height = unit(1, "cm"),
+width = unit(1, "cm"),
+style = north_arrow_fancy_orienteering) +
+labs(x = "", y = "",
+title = paste("Distribución de", unique(cleaned_data$scientificName)[1]),
+caption = paste("Fuente: GBIF\nAutor: Christian Cerazo Huapaya\nFecha:",
+format(Sys.time(),'%d %B %Y'))) +
+theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+plot.caption = element_text(hjust = 0.5, size = 10, face = "italic"),
+panel.background = element_rect(fill = "white"))
+```
+
+
+```{r}
+#solo america
+ggplot() +
+geom_sf(data = world, fill = "gray80", color = "gray70") +
+geom_point(data = cleaned_data, aes(x = decimalLongitude, y = decimalLatitude), color = "cyan4", size = 1, alpha = 0.6) +
+coord_sf(xlim = c(-170, -30),
+ylim = c(-60, 85)) +
+annotation_scale(location = "br", width_hint = 0.1, line_width = 0.5) +
+annotation_north_arrow(location = "tr", which_north = "true",
+pad_x = unit(1.5, "cm"),
+pad_y = unit(0.5, "cm"),
+height = unit(1, "cm"),
+width = unit(1, "cm"),
+style = north_arrow_fancy_orienteering) +
+labs(x = "", y = "",
+title = paste("Distribución de", unique(cleaned_data$scientificName)[1]),
+caption = paste("Fuente: GBIF\nAutor: Christian Cerazo Huapaya\nFecha:",
+format(Sys.time(),'%d %B %Y'))) +
+theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+plot.caption = element_text(hjust = 0.5, size = 10, face = "italic"),
+panel.background = element_rect(fill = "white"))
+```
+
